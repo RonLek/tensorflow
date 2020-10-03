@@ -22,6 +22,10 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/util/gpu_kernel_helper.h"
 
+#if defined(_MSC_VER)
+#include "tensorflow/core/framework/register_types.h"
+#endif
+
 namespace tensorflow {
 
 typedef Eigen::GpuDevice GPUDevice;
@@ -29,12 +33,13 @@ typedef Eigen::GpuDevice GPUDevice;
 // Space2Depth kernel for FORMAT_NHWC.
 // See 'spacetodepth_op.h' for a more detailed description.
 template <typename dtype>
-__global__ void S2D_NHWC(const int32 nthreads, const dtype* input_ptr,
+__global__ void S2D_NHWC(const int32 nthreads,
+                         const dtype* __restrict__ input_ptr,
                          const int block_size, const int batch_size,
                          const int input_height, const int input_width,
                          const int input_depth, const int output_height,
                          const int output_width, const int output_depth,
-                         dtype* output_ptr) {
+                         dtype* __restrict__ output_ptr) {
   GPU_1D_KERNEL_LOOP(inp_idx, nthreads) {
     // inp_idx = d + input_depth * (w + input_width * (h + input_height * b))
     const int d = inp_idx % input_depth;
@@ -250,6 +255,70 @@ template struct functor::SpaceToDepthOpFunctor<GPUDevice, uint8, FORMAT_NHWC>;
 
 // NCHW_VECT_C with 4 x qint8 can be treated as NCHW int32.
 template struct functor::SpaceToDepthOpFunctor<GPUDevice, int32, FORMAT_NCHW>;
+
+#if defined(_MSC_VER)
+#define FORCE_DEPTH(TYPE, NAME, NUM, DEVICE)                                   \
+  template <>                                                                  \
+  struct functor::SpaceToDepthOpFunctor<DEVICE, TYPE, NUM> {                   \
+    void operator()(const DEVICE& d,                                           \
+                    typename TTypes<TYPE, 4>::ConstTensor input,               \
+                    int block_size, typename TTypes<TYPE, 4>::Tensor output) { \
+      LOG(FATAL) << "Should not be called.";                                   \
+    }                                                                          \
+  };                                                                           \
+  void _force_SpaceToDepthOpFunctor##NAME(                                     \
+      const DEVICE& d, typename TTypes<TYPE, 4>::ConstTensor input,            \
+      int block_size, typename TTypes<TYPE, 4>::Tensor output) {               \
+    functor::SpaceToDepthOpFunctor<DEVICE, TYPE, NUM> op;                      \
+    op(d, input, block_size, output);                                          \
+  }
+
+#define FORCE_DEPTH2(TYPE, NAME, DEVICE)       \
+  FORCE_DEPTH(TYPE, NAME, FORMAT_NCHW, DEVICE) \
+  FORCE_DEPTH(TYPE, NAME##_2, FORMAT_NHWC, DEVICE)
+
+FORCE_DEPTH2(__int64, int64, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(unsigned __int64, uint64, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(unsigned int, uint, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(unsigned short, ushort, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(short, short, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(signed char, char, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(unsigned char, char, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(bfloat16, bfloat16, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(double, double, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(complex64, complex64, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(complex128, complex128, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(bool, bool, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(tensorflow::tstring, tstring, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(tensorflow::ResourceHandle, ResourceHandle,
+             Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(tensorflow::Variant, variant, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(Eigen::QInt8, qint8, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(Eigen::half, half, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(float, float, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(int, int, Eigen::ThreadPoolDevice)
+FORCE_DEPTH2(Eigen::QInt8, qint8gpu, GPUDevice)
+
+// Special case for int, FORMAT_NHWC
+template <>
+struct functor::SpaceToDepthOpFunctor<GPUDevice, int, FORMAT_NHWC> {
+  void operator()(const GPUDevice& d,
+                  typename TTypes<int, 4>::ConstTensor input, int block_size,
+                  typename TTypes<int, 4>::Tensor output) {
+    LOG(FATAL) << "Should not be called.";
+  }
+};
+void _force_SpaceToDepthOpFunctor_int(
+    const GPUDevice& d, typename TTypes<int, 4>::ConstTensor input,
+    int block_size, typename TTypes<int, 4>::Tensor output) {
+  functor::SpaceToDepthOpFunctor<GPUDevice, int, FORMAT_NHWC> op;
+  op(d, input, block_size, output);
+}
+
+#undef FORCE_DEPTH
+#undef FORCE_DEPTH2
+
+#endif
 
 }  // end namespace tensorflow
 

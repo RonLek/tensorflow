@@ -1,4 +1,6 @@
 load("//tensorflow/lite:build_def.bzl", "tflite_copts")
+load("//tensorflow/lite/micro:build_def.bzl", "micro_copts")
+load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -11,16 +13,23 @@ cc_library(
         "error_reporter.cc",
         "flatbuffer_conversions.cc",
         "op_resolver.cc",
+        "tensor_utils.cc",
     ],
     hdrs = [
         "error_reporter.h",
         "flatbuffer_conversions.h",
         "op_resolver.h",
         "profiler.h",
+        "tensor_utils.h",
     ],
-    copts = tflite_copts(),
+    compatible_with = get_compatible_with_portable(),
+    copts = tflite_copts() + micro_copts(),
     deps = [
-        "//tensorflow/lite/c:c_api_internal",
+        "@flatbuffers//:runtime_cc",
+        "//tensorflow/lite/c:common",
+        # TODO(b/158301698): consider moving internal:compatibility to a more
+        # central location.
+        "//tensorflow/lite/kernels/internal:compatibility",
         "//tensorflow/lite/schema:schema_fbs",
     ],
 )
@@ -52,7 +61,7 @@ cc_test(
     deps = [
         ":api",
         "//tensorflow/lite:string",
-        "//tensorflow/lite/c:c_api_internal",
+        "//tensorflow/lite/c:common",
         "@com_google_googletest//:gtest",
     ],
 )

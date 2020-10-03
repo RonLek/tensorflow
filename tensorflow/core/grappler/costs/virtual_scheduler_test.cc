@@ -205,6 +205,26 @@ TEST_F(ReadyNodeManagerTest, AddAndRemoveMultipleLIFOManager) {
   EXPECT_TRUE(manager.Empty());
 }
 
+TEST_F(ReadyNodeManagerTest, MergeOrderInLIFOManager) {
+  LIFOManager manager = LIFOManager();
+  node3_.set_op("Merge");
+  manager.AddNode(&node1_);
+  manager.AddNode(&node2_);
+  manager.AddNode(&node3_);
+  manager.AddNode(&node4_);
+
+  // Merge node (node3) will be scheduled at the end (even though it's added
+  // after nodde2).
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node4");
+  manager.RemoveCurrNode();
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node2");
+  manager.RemoveCurrNode();
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node1");
+  manager.RemoveCurrNode();
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node3");
+  manager.RemoveCurrNode();
+}
+
 TEST_F(ReadyNodeManagerTest, GetSingleNodeFirstReadyManager) {
   FirstReadyManager manager;
   TF_EXPECT_OK(manager.Init(&node_states_));
@@ -264,7 +284,7 @@ TEST_F(ReadyNodeManagerTest, GetCurrNodeFirstReadyManager) {
   // should return it.
   EXPECT_EQ("Node6", manager.GetCurrNode()->name());
 
-  // Now insrets a few other nodes, but their time_ready's are even smaller than
+  // Now inserts a few other nodes, but their time_ready's are even smaller than
   // that of Node6. Before calling RemoveCurrNode(), GetCurrNode() should return
   // the same node, Node6, in this case.
   NodeDef node7;
@@ -377,31 +397,32 @@ TEST_F(ReadyNodeManagerTest, GetAndRemoveMultiplePriorityReadyManager) {
   TF_EXPECT_OK(manager.Init(&node_states_));
 
   // Sets up node priorities.
-  std::unordered_map<string, int> node_priority = {{"Node1", 1}, {"Node2", 2},
-                                                   {"Node3", 3}, {"Node4", 4},
-                                                   {"Node5", 5}, {"Node6", 6}};
+  std::unordered_map<string, int> node_priority = {
+      {"Node1", 1}, {"Node2", 2}, {"Node3", 2}, {"Node4", 4}, {"Node5", 5}};
   TF_EXPECT_OK(manager.SetPriority(node_priority));
 
   // Inserts nodes in some random order.
-  manager.AddNode(&node2_);
+  manager.AddNode(&node3_);
   manager.AddNode(&node1_);
   manager.AddNode(&node4_);
   manager.AddNode(&node5_);
-  manager.AddNode(&node3_);
+  manager.AddNode(&node2_);
   manager.AddNode(&node6_);
 
   // Expects nodes scheduled based on priority.
+  // Node6 should default to lowest priority, since it is not found.
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node6");
+  manager.RemoveCurrNode();
   EXPECT_EQ(manager.GetCurrNode()->name(), "Node1");
   manager.RemoveCurrNode();
-  EXPECT_EQ(manager.GetCurrNode()->name(), "Node2");
-  manager.RemoveCurrNode();
+  // Nodes 2 and 3 have equal priority and so should be scheduled ready-first.
   EXPECT_EQ(manager.GetCurrNode()->name(), "Node3");
+  manager.RemoveCurrNode();
+  EXPECT_EQ(manager.GetCurrNode()->name(), "Node2");
   manager.RemoveCurrNode();
   EXPECT_EQ(manager.GetCurrNode()->name(), "Node4");
   manager.RemoveCurrNode();
   EXPECT_EQ(manager.GetCurrNode()->name(), "Node5");
-  manager.RemoveCurrNode();
-  EXPECT_EQ(manager.GetCurrNode()->name(), "Node6");
   manager.RemoveCurrNode();
   EXPECT_TRUE(manager.Empty());
 }
@@ -414,7 +435,7 @@ TEST_F(ReadyNodeManagerTest, RemoveSingleNodeCompositeNodeManager) {
   EXPECT_TRUE(manager.Empty());
 }
 
-TEST_F(ReadyNodeManagerTest, GetAndRemoveMultipleComopsiteNodeManager) {
+TEST_F(ReadyNodeManagerTest, GetAndRemoveMultipleCompositeNodeManager) {
   CompositeNodeManager manager;
   TF_EXPECT_OK(manager.Init(&node_states_));
   manager.AddNode(&node1_);
@@ -444,7 +465,7 @@ TEST_F(ReadyNodeManagerTest, GetAndRemoveMultipleComopsiteNodeManager) {
   EXPECT_TRUE(manager.Empty());
 }
 
-TEST_F(ReadyNodeManagerTest, MultiDeviceSendRecvComopsiteNodeManager) {
+TEST_F(ReadyNodeManagerTest, MultiDeviceSendRecvCompositeNodeManager) {
   CompositeNodeManager manager;
   TF_EXPECT_OK(manager.Init(&node_states_));
   // Additional nodes on kCPU1.
@@ -2965,7 +2986,7 @@ TEST_F(VirtualSchedulerTest, GraphWihtOnlyRecv) {
 }
 
 TEST_F(VirtualSchedulerTest, AddMergeSwitch) {
-  // Override scheduler_ with CompositeNodeNamager.
+  // Override scheduler_ with CompositeNodeManager.
   scheduler_ = absl::make_unique<TestVirtualScheduler>(
       /*use_static_shapes=*/true,
       /*use_aggressive_shape_inference=*/true, &composite_node_manager_,
@@ -2987,7 +3008,7 @@ TEST_F(VirtualSchedulerTest, AddMergeSwitch) {
   // Run the scheduler. The current VirtualScheduler, w/o annotation, triggers
   // both outputs of Switch; then Merge (as long as one input is ready, it's z
   // is ready, if we just use num_inputs_ready counter, the final Add becomes
-  // ready. possible to skipt scheduling z. (Need to use CompositeNodeManager
+  // ready. possible to skip scheduling z. (Need to use CompositeNodeManager
   // to test this case).
   auto ops_executed = RunScheduler("");
 

@@ -30,6 +30,8 @@ class PrefetchDatasetOp : public UnaryDatasetOpKernel {
   static constexpr const char* const kOutputTypes = "output_types";
   static constexpr const char* const kOutputShapes = "output_shapes";
   static constexpr const char* const kSlackPeriod = "slack_period";
+  static constexpr const char* const kLegacyAutotune = "legacy_autotune";
+  static constexpr const char* const kBufferSizeMin = "buffer_size_min";
 
   explicit PrefetchDatasetOp(OpKernelConstruction* ctx);
 
@@ -40,6 +42,8 @@ class PrefetchDatasetOp : public UnaryDatasetOpKernel {
  private:
   class Dataset;
   int64 slack_period_ = 0;
+  bool legacy_autotune_ = true;
+  int64 buffer_size_min_ = 0;
 };
 
 }  // namespace data

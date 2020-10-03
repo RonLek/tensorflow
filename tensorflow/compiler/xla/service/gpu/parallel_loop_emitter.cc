@@ -22,6 +22,7 @@ limitations under the License.
 // IWYU pragma: no_include "llvm/IR/Intrinsics.gen.inc"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
+#include "tensorflow/compiler/xla/service/gpu/target_util.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/llvm_loop.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/llvm_util.h"
 #include "tensorflow/compiler/xla/shape_util.h"
@@ -72,9 +73,9 @@ ParallelLoopEmitter::EmitIndexAndSetExitBasicBlock(absl::string_view loop_name,
   VLOG(3) << "EmitIndexAndSetExitBasicBlock unroll_factor " << unroll_factor_;
   CHECK_NE(index_type, nullptr);
   std::vector<llvm_ir::IrArray::Index> array_indices;
-  llvm::Value* block_id = llvm_ir::EmitCallToIntrinsic(
-      llvm::Intrinsic::nvvm_read_ptx_sreg_ctaid_x, {}, {}, b_);
-  llvm_ir::AddRangeMetadata(0, launch_dimensions_.block_count(),
+  llvm::Value* block_id =
+      EmitCallToTargetIntrinsic(TargetIntrinsicID::kBlockIdx, {}, {}, b_);
+  llvm_ir::AddRangeMetadata(0, launch_dimensions_.block_counts().x,
                             static_cast<llvm::Instruction*>(block_id));
   block_id = b_->CreateZExtOrTrunc(block_id, index_type, "block_id");
 
@@ -82,18 +83,19 @@ ParallelLoopEmitter::EmitIndexAndSetExitBasicBlock(absl::string_view loop_name,
   //   "It is guaranteed that [...] 0  <=  %tid.x <  %ntid.x"
   //
   // %ntid.x is currently specified as 1024.
-  llvm::Value* thread_id = llvm_ir::EmitCallToIntrinsic(
-      llvm::Intrinsic::nvvm_read_ptx_sreg_tid_x, {}, {}, b_);
-  llvm_ir::AddRangeMetadata(0, launch_dimensions_.threads_per_block(),
+  llvm::Value* thread_id =
+      EmitCallToTargetIntrinsic(TargetIntrinsicID::kThreadIdx, {}, {}, b_);
+  llvm_ir::AddRangeMetadata(0, launch_dimensions_.thread_counts_per_block().x,
                             static_cast<llvm::Instruction*>(thread_id));
   thread_id = b_->CreateZExtOrTrunc(thread_id, index_type, "thread_id");
 
   llvm::Value* linear_index_base = b_->CreateAdd(
-      b_->CreateMul(block_id,
-                    llvm::ConstantInt::get(
-                        index_type, launch_dimensions_.threads_per_block()),
-                    "",
-                    /*HasNUW=*/true, /*HasNSW=*/true),
+      b_->CreateMul(
+          block_id,
+          llvm::ConstantInt::get(
+              index_type, launch_dimensions_.thread_counts_per_block().x),
+          "",
+          /*HasNUW=*/true, /*HasNSW=*/true),
       thread_id, "linear_index", /*HasNUW=*/true, /*HasNSW=*/true);
 
   // Add an @llvm.assume(linear_index < threads_per_block * num_blocks).
@@ -108,9 +110,9 @@ ParallelLoopEmitter::EmitIndexAndSetExitBasicBlock(absl::string_view loop_name,
       llvm::Intrinsic::assume,
       {b_->CreateICmpULT(
           linear_index_base,
-          llvm::ConstantInt::get(index_type,
-                                 launch_dimensions_.threads_per_block() *
-                                     launch_dimensions_.block_count()),
+          llvm::ConstantInt::get(
+              index_type, launch_dimensions_.thread_counts_per_block().x *
+                              launch_dimensions_.block_counts().x),
           "linear_index_in_range")},
       {}, b_);
 

@@ -17,6 +17,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 from tensorflow.lite.tutorials import dataset
@@ -84,4 +85,4 @@ def main(_):
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run(main)
+  tf.compat.v1.app.run(main)
